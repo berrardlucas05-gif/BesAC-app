@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#222222">
+<title>Feuille de match BESAC</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+body{
+ margin:0;
+ font-family:Arial, sans-serif;
+ background:#f0f0f0;
+}
+
+header{
+ background:#222;
+ color:white;
+ text-align:center;
+ padding:10px;
+}
+
+header img{
+ height:60px;
+}
+
+.total{
+ font-size:22px;
+ font-weight:bold;
+ margin-top:5px;
+}
+
+.controls,.actions{
+ display:flex;
+ gap:10px;
+ padding:10px;
+}
+
+.controls input{
+ flex:1;
+ padding:10px;
+ font-size:16px;
+}
+
+button{
+ padding:10px;
+ font-size:16px;
+ cursor:pointer;
+}
+
+.players{
+ display:flex;
+ overflow-x:auto;
+ gap:12px;
+ padding:10px;
+}
+
+.player{
+ background:white;
+ min-width:200px;
+ border-radius:10px;
+ padding:10px;
+ text-align:center;
+ box-shadow:0 2px 6px rgba(0,0,0,.2);
+}
+
+.player.exclu{
+ opacity:.5;
+ background:#ddd;
+}
+
+.score{
+ font-size:36px;
+ font-weight:bold;
+}
+
+.fautes{
+ margin-bottom:6px;
+}
+
+.btns button{
+ margin:3px;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+ <img src="besac.png" alt="BESAC">
+ <div class="total">Score total : <span id="totalScore">0</span></div>
+</header>
+
+<div class="controls">
+ <input id="nameInput" placeholder="Nom du joueur">
+ <button onclick="addPlayer()">Ajouter joueur</button>
+</div>
+
+<div class="players" id="players"></div>
+
+<div class="actions">
+ <button onclick="undo()">â© Annuler</button>
+ <button onclick="redo()">âª Refaire</button>
+ <button onclick="toggleFullscreen()">ð± Plein Ã©cran</button>
+ <button onclick="exportPDF()">ð Export PDF</button>
+</div>
+
+<script>
+const { jsPDF } = window.jspdf;
+
+let players = [];
+let undoStack = [];
+let redoStack = [];
+
+/* ===== UTILS ===== */
+function saveState(){
+ undoStack.push(JSON.stringify(players));
+ redoStack = [];
+}
+
+function updateTotal(){
+ const total = players.reduce((s,p)=>s+p.score,0);
+ document.getElementById("totalScore").textContent = total;
+}
+
+/* ===== PLAYERS ===== */
+function addPlayer(){
+ const name = nameInput.value.trim();
+ if(!name) return;
+
+ saveState();
+ players.push({
+  name,
+  score:0,
+  fouls:0,
+  lf:0,
+  p2:0,
+  p3:0
+ });
+
+ nameInput.value="";
+ render();
+}
+
+function addPoints(i,type){
+ if(players[i].fouls>=5) return;
+
+ saveState();
+
+ if(type==="lf"){ players[i].lf++; players[i].score+=1; }
+ if(type==="p2"){ players[i].p2++; players[i].score+=2; }
+ if(type==="p3"){ players[i].p3++; players[i].score+=3; }
+
+ render();
+}
+
+function addFoul(i){
+ if(players[i].fouls>=5) return;
+ saveState();
+ players[i].fouls++;
+ render();
+}
+
+/* ===== UNDO / REDO ===== */
+function undo(){
+ if(!undoStack.length) return;
+ redoStack.push(JSON.stringify(players));
+ players = JSON.parse(undoStack.pop());
+ render();
+}
+
+function redo(){
+ if(!redoStack.length) return;
+ undoStack.push(JSON.stringify(players));
+ players = JSON.parse(redoStack.pop());
+ render();
+}
+
+/* ===== FULLSCREEN ===== */
+function toggleFullscreen(){
+ if(!document.fullscreenElement){
+  document.documentElement.requestFullscreen();
+ }else{
+  document.exitFullscreen();
+ }
+}
+
+/* ===== PDF EXPORT ===== */
+function exportPDF(){
+ if(players.length===0){
+  alert("Aucun joueur");
+  return;
+ }
+
+ const pdf = new jsPDF();
+ let y = 20;
+
+ pdf.setFontSize(18);
+ pdf.text("Feuille de match BESAC",105,y,{align:"center"});
+ y+=10;
+
+ pdf.setFontSize(12);
+ pdf.text("Score total : "+players.reduce((s,p)=>s+p.score,0),10,y);
+ y+=10;
+
+ pdf.setFont(undefined,"bold");
+ pdf.text("Nom",10,y);
+ pdf.text("LF",60,y);
+ pdf.text("2pts",80,y);
+ pdf.text("3pts",105,y);
+ pdf.text("Fautes",135,y);
+ pdf.text("Score",165,y);
+ pdf.line(10,y+2,200,y+2);
+ y+=8;
+ pdf.setFont(undefined,"normal");
+
+ players.forEach(p=>{
+  pdf.text(p.name,10,y);
+  pdf.text(String(p.lf),60,y);
+  pdf.text(String(p.p2),80,y);
+  pdf.text(String(p.p3),105,y);
+  pdf.text(String(p.fouls),135,y);
+  pdf.text(String(p.score),165,y);
+  y+=8;
+  if(y>280){ pdf.addPage(); y=20; }
+ });
+
+ const img = new Image();
+ img.src="besac.png";
+ img.onload=()=>{ pdf.addImage(img,"PNG",160,5,30,30); pdf.save("feuille_match_besac.pdf"); }
+ img.onerror=()=>{ pdf.save("feuille_match_besac.pdf"); }
+}
+
+/* ===== RENDER ===== */
+function render(){
+ const container=document.getElementById("players");
+ container.innerHTML="";
+
+ players.forEach((p,i)=>{
+  const div=document.createElement("div");
+  div.className="player"+(p.fouls>=5?" exclu":"");
+
+  div.innerHTML=`
+   <h3>${p.name}</h3>
+   <div class="score">${p.score}</div>
+   <div class="fautes">Fautes : ${p.fouls}/5</div>
+   <div class="btns">
+    <button onclick="addPoints(${i},'lf')">+1 LF</button>
+    <button onclick="addPoints(${i},'p2')">+2</button>
+    <button onclick="addPoints(${i},'p3')">+3</button><br>
+    <button onclick="addFoul(${i})">+ Faute</button>
+   </div>
+  `;
+  container.appendChild(div);
+ });
+
+ updateTotal();
+}
+</script>
+
+</body>
+</html>
